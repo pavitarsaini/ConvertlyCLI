@@ -74,9 +74,10 @@ class CommandParser:
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": "Answer this as briefly as possible and using the latest context: "
+                "content": "Answer this using the latest context, remember to explain your thinking using the echo command(echo 'explanation') and output code after. Task: "
                 + self.query,
             },
+        
         ]
 
         if history:
@@ -84,9 +85,10 @@ class CommandParser:
                 1,
                 {
                     "role": "user",
-                    "content": history_prompt,
+                    "content": history_prompt + ' NOTE: If the last command produced an error you must explain the problem and the solution to that problem".',
                 },
             )
+        print(messages)
         print(f"\033[1;33;40mRunning...\033[0m", end="\r")
         response, status_code = self.get_command(api_key, messages)
         if status_code != 200:
@@ -99,7 +101,7 @@ class CommandParser:
 
     def _generate_history_prompt(self, history):
         return (
-            "For context, here's the history of the last five questions, answers and the status of their execution, if a query has failed, try something different. \n\n"
+            "For context, here's the history of the last five questions, answers and the status of their execution, if an error occured you must not use that command again. \n\n"
             + "\n".join(history)
         )
 
@@ -110,14 +112,12 @@ class CommandParser:
         else:
             status_part = "No error"
 
-        return f"""You are a command line utility for the {platform.system()} OS that quickly and succinctly converts images, videos, files and manipulates them. When a user asks a question, you MUST respond with ONLY the most relevant command that will be executed within the command line, along with the required packages that need to be installed. If absolutely necessary, you may execute Python code to do a conversion. Your responses should be clear and console-friendly. If there are file or folder paths, then they MUST be quoted in your response.
-
-        If there is an error, echo the problem and why the error: {status_part} occurred in the format echo "Error: (error)", and consider it when generating the next command, only if it's relevant. If there is no error, ignore this.
+        return f"""You are a command line utility for the {platform.system()} OS that quickly and succinctly converts images, videos, files and manipulates them. When a user asks a question, you MUST respond with ONLY the most relevant command that will be executed within the command line, along with the required packages that need to be installed. If absolutely necessary, you may execute Python code to do a conversion by creating a python file and running it. Your responses should be clear and console-friendly. To talk to the user you must use the echo command as you are in the terminal.
 
         Things to NOT do:
 
         - Do not include codeblocks or any ``` in your response, this is not a bash script, it is a command line utility. Commands should be directly executable in the command line.
-        - Do not assume a user has pre-requisite packages installed, always install it anyways. 
+        - Do not assume a user has pre-requisite packages installed, always install it anyways.
 
 Here's how your responses should look:
 
@@ -126,17 +126,11 @@ EXAMPLE 1
 <Users Question>
 conv file.webp to png
 <Your Answer>
+echo "Explanation: I will use dwebp to convert the file to a png."
 dwebp "file.webp" -o "file.png"
 <User Question>
+echo "Explanation: To rotate the image by 90 degrees, I will use imagemagick."
 rotate that image by 90 degrees
-<Your Answer>
-brew install imagemagick
-convert "file.png" -rotate 90 "rotated_file.png"
-
-EXAMPLE 2
-
-<Users Question>
-rotate an image by 90 degrees
 <Your Answer>
 brew install imagemagick
 convert "file.png" -rotate 90 "rotated_file.png"
@@ -146,20 +140,15 @@ EXAMPLE 3
 <Users Question>
 convert a video in /path/to/video.mp4 to a gif
 <Your Answer>
+echo "Explanation: I will use ffmpeg to convert the video to a gif."
 ffmpeg -i "/path/to/video.mp4" "/path/to/video.gif"
-
-EXAMPLE 4
-
-<Users Question>
-avif to png for file.avif
-<Your Answer>
-magick "file.avif" "file.png"
 
 EXAMPLE 5
 
 <Users Question>
 convert my pdf to docx, the file is /Users/path/file.pdf
 <Your Answer>
+echo "Explanation: I will use pdf2docx to convert the pdf to a docx."
 pip install pdf2docx
 python3 -c "from pdf2docx import parse; pdf_file = r'/Users/path/file.pdf'; docx_file = r'/Users/path/file.docx'; parse(pdf_file, docx_file, start=0, end=None)"
 
@@ -168,6 +157,7 @@ EXAMPLE 6
 <Users Question>
 copy all of Documents/Screenshots to a folder called Screenshots2 in the same directory
 <Your Answer>
+echo "Explanation: I will use cp to copy the folder to a folder called Screenshots2."
 cp -a "Documents/Screenshots Documents/test"
 
 
@@ -185,14 +175,14 @@ class CommandExecutor:
             status = f"An error occurred while executing the command: {command.split('Error: ')[-1]}"
         else:
             try:
-                subprocess.run(command, check=True, shell=True)
+                result = subprocess.run(command, check=True, shell=True, capture_output=True, text=True)
                 print(f"\033[1;32;40mExecuted: {command}\033[0m")
+                print(f"Output: {result.stdout}")
                 status = "Success"
             except subprocess.CalledProcessError as e:
-                print(
-                    f"\033[1;31;40mAn error occurred while executing the command: {e}\033[0m"
-                )
-                status = f"An error occurred while executing the command: {e}"
+                print(f"\033[1;31;40mAn error occurred while executing the command: {e}\033[0m")
+                print(f"Error info: {e.stderr}")
+                status = f"An error occurred while executing the command: {e}, Error info: {e.stderr}"
         return status
 
 
